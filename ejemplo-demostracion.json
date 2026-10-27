@@ -1,0 +1,18 @@
+{
+  "titulo": "Vacante de demostración — no es una oferta real",
+  "empresa": "Empresa ficticia",
+  "pais": "España",
+  "ciudad": "Madrid",
+  "categoria": "Tecnología",
+  "modalidad": "Remoto",
+  "tipo": "Tiempo completo",
+  "salario": "No indicado",
+  "fecha": "2026-10-27",
+  "descripcion": "Esta publicación sirve únicamente para visualizar el diseño de EmpléateHoy. No corresponde a una empresa ni a una oferta laboral real.",
+  "requisitos": [
+    "Esta vacante es ficticia y no acepta postulaciones"
+  ],
+  "aplicarUrl": "https://example.com",
+  "destacado": false,
+  "demostracion": true
+}

@@ -1,0 +1,7 @@
+---
+const {job}=Astro.props; const d=job.data;
+const initials=d.empresa.split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+---
+<article class="job-card" data-search={`${d.titulo} ${d.empresa} ${d.ciudad} ${d.pais}`.toLocaleLowerCase()} data-country={d.pais} data-category={d.categoria} data-mode={d.modalidad}>
+ <div class="company-avatar">{initials}</div><div class="job-info"><div class="job-title-line"><h3><a href={`/empleos/${job.id}/`}>{d.titulo}</a></h3>{d.destacado&&<span class="pill featured">Destacado</span>}{d.demostracion&&<span class="pill demo">Ejemplo ficticio</span>}</div><p class="company-name">{d.empresa}</p><div class="job-tags"><span>📍 {d.ciudad}, {d.pais}</span><span>💼 {d.tipo}</span><span class="pill">{d.modalidad}</span><span class="pill pale">{d.categoria}</span></div></div><a class="apply-small" href={`/empleos/${job.id}/`}>Ver empleo ↗</a>
+</article>
