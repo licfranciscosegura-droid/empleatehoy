@@ -5,79 +5,62 @@ import jobsData from '../../../public/jobs.json';
 export const prerender = true;
 
 /*
-  EMPLÉATEHOY
-  Página individual de empleos
-  Astro + GitHub + Cloudflare Pages
+ * EMPLÉATEHOY
+ * Página individual de vacantes
+ * Compatible con Astro + GitHub + Cloudflare Pages
+ */
 
-  IMPORTANTE:
-  getStaticPaths no utiliza funciones externas.
-  Esto evita los errores:
-  - crearSlug is not defined
-  - texto is not defined
-*/
+type Job = {
+  id?: string | number;
+  slug?: string;
+  titulo?: string;
+  empresa?: string;
+  pais?: string;
+  ciudad?: string;
+  ubicacion?: string;
+  modalidad?: string;
+  categoria?: string;
+  tipo?: string;
+  salario?: string;
+  idioma?: string;
+  descripcion?: string;
+  requisitos?: string;
+  responsabilidades?: string;
+  fecha?: string;
+  vence?: string;
+  url?: string;
+  aplicarUrl?: string;
+  fuente?: string;
+  fuenteUrl?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+};
 
-export function getStaticPaths() {
-  const vacantes = Array.isArray(jobsData) ? jobsData : [];
-
-  const slugsUsados = new Set();
-
-  return vacantes
-    .filter((empleo) => {
-      return (
-        empleo &&
-        String(empleo.id ?? '').trim() !== '' &&
-        String(empleo.titulo ?? '').trim() !== ''
-      );
-    })
-    .map((empleo) => {
-      const slug = String(empleo.id ?? '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-
-      return {
-        slug,
-        empleo
-      };
-    })
-    .filter(({ slug }) => {
-      if (!slug || slugsUsados.has(slug)) {
-        return false;
-      }
-
-      slugsUsados.add(slug);
-      return true;
-    })
-    .map(({ slug, empleo }) => ({
-      params: {
-        slug
-      },
-      props: {
-        empleo
-      }
-    }));
-}
-
-// Funciones utilizadas únicamente para mostrar la página.
-
-function texto(valor) {
+function texto(valor: unknown): string {
   return String(valor ?? '').trim();
 }
 
-function fechaValida(valor) {
+function crearSlug(valor: unknown): string {
+  return texto(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function fechaValida(valor: unknown): string | undefined {
   const fecha = texto(valor);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
     return undefined;
   }
 
-  const objeto = new Date(`${fecha}T00:00:00Z`);
+  const parsed = new Date(`${fecha}T00:00:00Z`);
 
   if (
-    Number.isNaN(objeto.getTime()) ||
-    objeto.toISOString().slice(0, 10) !== fecha
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== fecha
   ) {
     return undefined;
   }
@@ -85,172 +68,160 @@ function fechaValida(valor) {
   return fecha;
 }
 
-function urlSegura(valor) {
-  const url = texto(valor);
+export function getStaticPaths() {
+  const trabajos = Array.isArray(jobsData)
+    ? (jobsData as Job[])
+    : [];
 
-  if (!url) return '';
+  const usados = new Set<string>();
 
-  try {
-    const resultado = new URL(url);
+  return trabajos
+    .filter((trabajo) => {
+      return (
+        trabajo &&
+        texto(trabajo.id) &&
+        texto(trabajo.titulo)
+      );
+    })
+    .map((trabajo) => {
+      /*
+       * Se conserva el ID como slug para mantener
+       * compatibilidad con los enlaces actuales
+       * de la portada de EmpléateHoy.
+       */
+      const slug = crearSlug(trabajo.id);
 
-    if (
-      resultado.protocol === 'https:' ||
-      resultado.protocol === 'http:'
-    ) {
-      return resultado.href;
-    }
-  } catch {
-    return '';
-  }
+      return {
+        slug,
+        trabajo
+      };
+    })
+    .filter(({ slug }) => {
+      if (!slug || usados.has(slug)) {
+        return false;
+      }
 
-  return '';
+      usados.add(slug);
+      return true;
+    })
+    .map(({ slug, trabajo }) => ({
+      params: {
+        slug
+      },
+      props: {
+        trabajo
+      }
+    }));
 }
 
-function normalizarTipo(valor) {
-  const tipo = texto(valor);
-  const normalizado = tipo.toUpperCase();
+const { trabajo } = Astro.props as {
+  trabajo: Job;
+};
 
-  const tiposValidos = [
-    'FULL_TIME',
-    'PART_TIME',
-    'CONTRACTOR',
-    'TEMPORARY',
-    'INTERN',
-    'VOLUNTEER',
-    'PER_DIEM',
-    'OTHER'
-  ];
-
-  if (tiposValidos.includes(normalizado)) {
-    return normalizado;
-  }
-
-  if (/tiempo completo|full.time|jornada completa/i.test(tipo)) {
-    return 'FULL_TIME';
-  }
-
-  if (/medio tiempo|part.time|tiempo parcial/i.test(tipo)) {
-    return 'PART_TIME';
-  }
-
-  if (/pasant|internship/i.test(tipo)) {
-    return 'INTERN';
-  }
-
-  if (/temporal|temporary/i.test(tipo)) {
-    return 'TEMPORARY';
-  }
-
-  return undefined;
-}
-
-// Datos de la vacante generada por Astro.
-
-const { empleo } = Astro.props;
-
-const titulo = texto(empleo.titulo);
-
-const empresa =
-  texto(empleo.empresa) || 'Empresa no especificada';
+const titulo = texto(trabajo.titulo);
+const empresa = texto(trabajo.empresa) || 'Empresa no especificada';
 
 const ubicacion =
-  texto(empleo.ubicacion) ||
-  [texto(empleo.ciudad), texto(empleo.pais)]
+  texto(trabajo.ubicacion) ||
+  [texto(trabajo.ciudad), texto(trabajo.pais)]
     .filter(Boolean)
     .join(', ') ||
   'Ubicación no especificada';
 
-const descripcion = texto(empleo.descripcion);
-
-const requisitos = texto(empleo.requisitos);
-
-const responsabilidades = texto(empleo.responsabilidades);
-
-const modalidad = texto(empleo.modalidad);
-
-const tipo = texto(empleo.tipo);
-
-const categoria = texto(empleo.categoria);
-
-const salario = texto(empleo.salario);
-
-const pais = texto(empleo.pais);
-
-const ciudad = texto(empleo.ciudad);
-
-const idioma = texto(empleo.idioma) || 'es';
-
-const fuente = texto(empleo.fuente);
-
-const fechaPublicacion = fechaValida(empleo.fecha);
-
-const fechaVencimiento = fechaValida(empleo.vence);
+const descripcion = texto(trabajo.descripcion);
 
 const tituloSEO =
-  texto(empleo.seoTitle) ||
+  texto(trabajo.seoTitle) ||
   `${titulo} - ${empresa} | EmpléateHoy`;
 
-const descripcionSEO = (
-  texto(empleo.seoDescription) ||
-  `Oferta de empleo: ${titulo} en ${empresa}. ${ubicacion}. Consulta la descripción, requisitos y cómo aplicar.`
-).slice(0, 160);
+const descripcionSEO =
+  texto(trabajo.seoDescription) ||
+  `Conoce la vacante de ${titulo} en ${empresa}. Ubicación: ${ubicacion}. Consulta los requisitos y cómo aplicar en EmpléateHoy.`;
+
+const metaDescripcion = descripcionSEO.slice(0, 160);
 
 const canonical = new URL(
   Astro.url.pathname,
   Astro.site || Astro.url.origin
 ).href;
 
-const urlAplicar = urlSegura(
-  empleo.aplicarUrl || empleo.url || empleo.fuenteUrl
+const fechaPublicacion = fechaValida(trabajo.fecha);
+const fechaVencimiento = fechaValida(trabajo.vence);
+
+const esRemoto = /remot|teletrabaj|work from home/i.test(
+  texto(trabajo.modalidad)
 );
 
-const urlFuente = urlSegura(
-  empleo.fuenteUrl || empleo.url
-);
+const pais = texto(trabajo.pais);
+const ciudad = texto(trabajo.ciudad);
 
-const remoto = /remot|teletrabaj|work from home/i.test(
-  modalidad
-);
+const tipoEmpleo = texto(trabajo.tipo);
 
-const tipoSchema = normalizarTipo(tipo);
+const tiposValidos = [
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACTOR',
+  'TEMPORARY',
+  'INTERN',
+  'VOLUNTEER',
+  'PER_DIEM',
+  'OTHER'
+];
 
-// Datos estructurados para buscadores.
+function normalizarTipo(valor: string): string | undefined {
+  const normalizado = valor.toUpperCase();
+
+  if (tiposValidos.includes(normalizado)) {
+    return normalizado;
+  }
+
+  if (/tiempo completo|full.time|jornada completa/i.test(valor)) {
+    return 'FULL_TIME';
+  }
+
+  if (/medio tiempo|part.time|tiempo parcial/i.test(valor)) {
+    return 'PART_TIME';
+  }
+
+  if (/pasant|internship|interno/i.test(valor)) {
+    return 'INTERN';
+  }
+
+  if (/contrato temporal|temporary/i.test(valor)) {
+    return 'TEMPORARY';
+  }
+
+  return undefined;
+}
+
+const tipoSchema = normalizarTipo(tipoEmpleo);
 
 const jobPosting = {
   '@context': 'https://schema.org',
   '@type': 'JobPosting',
-
   title: titulo,
-
   description: descripcion,
-
-  url: canonical,
-
   identifier: {
     '@type': 'PropertyValue',
     name: 'EmpléateHoy',
-    value: texto(empleo.id)
+    value: texto(trabajo.id)
   },
-
   hiringOrganization: {
     '@type': 'Organization',
     name: empresa
   },
+  url: canonical,
 
   ...(fechaPublicacion
     ? { datePosted: fechaPublicacion }
     : {}),
 
   ...(fechaVencimiento
-    ? {
-        validThrough: `${fechaVencimiento}T23:59:59`
-      }
+    ? { validThrough: `${fechaVencimiento}T23:59:59-04:00` }
     : {}),
 
   ...(tipoSchema
-    ? {
-        employmentType: tipoSchema
-      }
+    ? { employmentType: tipoSchema }
     : {}),
 
   ...(pais || ciudad
@@ -259,28 +230,22 @@ const jobPosting = {
           '@type': 'Place',
           address: {
             '@type': 'PostalAddress',
-
-            ...(ciudad
-              ? { addressLocality: ciudad }
-              : {}),
-
-            ...(pais
-              ? { addressCountry: pais }
-              : {})
+            ...(ciudad ? { addressLocality: ciudad } : {}),
+            ...(pais ? { addressCountry: pais } : {})
           }
         }
       }
     : {}),
 
-  ...(remoto
-    ? {
-        jobLocationType: 'TELECOMMUTE'
-      }
+  ...(esRemoto
+    ? { jobLocationType: 'TELECOMMUTE' }
     : {})
 };
 
-const jsonLD = JSON.stringify(jobPosting)
+const datosEstructurados = JSON.stringify(jobPosting)
   .replace(/</g, '\\u003c');
+
+const idioma = texto(trabajo.idioma) || 'es';
 ---
 
 <!doctype html>
@@ -290,14 +255,14 @@ const jsonLD = JSON.stringify(jobPosting)
 
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1"
+      content="width=device-width, initial-scale=1.0"
     />
 
     <title>{tituloSEO}</title>
 
     <meta
       name="description"
-      content={descripcionSEO}
+      content={metaDescripcion}
     />
 
     <meta
@@ -308,25 +273,16 @@ const jsonLD = JSON.stringify(jobPosting)
     <link rel="canonical" href={canonical} />
 
     <meta property="og:type" content="website" />
-
-    <meta
-      property="og:title"
-      content={tituloSEO}
-    />
-
+    <meta property="og:title" content={tituloSEO} />
     <meta
       property="og:description"
-      content={descripcionSEO}
+      content={metaDescripcion}
     />
-
-    <meta
-      property="og:url"
-      content={canonical}
-    />
+    <meta property="og:url" content={canonical} />
 
     <script
       type="application/ld+json"
-      set:html={jsonLD}
+      set:html={datosEstructurados}
     />
 
     <style>
@@ -452,25 +408,9 @@ const jsonLD = JSON.stringify(jobPosting)
         line-height: 1.85;
       }
 
-      .boton {
-        display: inline-block;
-        background: var(--rojo);
-        color: white;
-        text-decoration: none;
-        padding: 14px 25px;
-        border-radius: 10px;
-        font-weight: 800;
-        margin-top: 20px;
-        transition: background 0.2s ease;
-      }
-
-      .boton:hover {
-        background: #c92735;
-      }
-
-      .fuente {
-        margin-top: 30px;
-        padding-top: 20px;
+      .aviso {
+        margin-top: 32px;
+        padding-top: 18px;
         border-top: 1px solid var(--borde);
         font-size: 13px;
         color: #64748b;
@@ -522,31 +462,26 @@ const jsonLD = JSON.stringify(jobPosting)
 
         <h1>{titulo}</h1>
 
-        <div class="empresa">
-          {empresa}
-        </div>
+        <div class="empresa">{empresa}</div>
 
         <div class="detalles">
+          <span class="detalle">📍 {ubicacion}</span>
 
-          <span class="detalle">
-            📍 {ubicacion}
-          </span>
-
-          {modalidad && (
+          {trabajo.modalidad && (
             <span class="detalle">
-              💻 {modalidad}
+              💻 {trabajo.modalidad}
             </span>
           )}
 
-          {tipo && (
+          {trabajo.tipo && (
             <span class="detalle">
-              💼 {tipo}
+              💼 {trabajo.tipo}
             </span>
           )}
 
-          {categoria && (
+          {trabajo.categoria && (
             <span class="detalle">
-              📂 {categoria}
+              📂 {trabajo.categoria}
             </span>
           )}
 
@@ -555,41 +490,36 @@ const jsonLD = JSON.stringify(jobPosting)
               📅 {fechaPublicacion}
             </span>
           )}
-
         </div>
 
-        <h2>
-          Descripción completa del empleo
-        </h2>
+        <h2>Descripción completa del empleo</h2>
 
         <div class="descripcion">
           {descripcion || 'Descripción no disponible.'}
         </div>
 
-        {requisitos && (
+        {trabajo.requisitos && (
           <section>
             <h2>Requisitos</h2>
-
             <div class="descripcion">
-              {requisitos}
+              {trabajo.requisitos}
             </div>
           </section>
         )}
 
-        {responsabilidades && (
+        {trabajo.responsabilidades && (
           <section>
             <h2>Responsabilidades</h2>
-
             <div class="descripcion">
-              {responsabilidades}
+              {trabajo.responsabilidades}
             </div>
           </section>
         )}
 
-        {salario && (
+        {trabajo.salario && (
           <section>
             <h2>Salario</h2>
-            <p>{salario}</p>
+            <p>{trabajo.salario}</p>
           </section>
         )}
 
@@ -600,45 +530,7 @@ const jsonLD = JSON.stringify(jobPosting)
           </section>
         )}
 
-        {urlAplicar && (
-          <a
-            href={urlAplicar}
-            class="boton"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Consultar cómo aplicar ↗
-          </a>
-        )}
-
-        <div class="fuente">
-
-          {fuente && (
-            <p>
-              Fuente: {fuente}
-            </p>
-          )}
-
-          {urlFuente && (
-            <p>
-              <a
-                href={urlFuente}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Consultar publicación original
-              </a>
-            </p>
-          )}
-
-          <p>
-            EmpléateHoy facilita información sobre
-            oportunidades laborales. Verifica siempre
-            los requisitos y la vigencia de cada oferta.
-          </p>
-
-        </div>
-
+        <p class="aviso">Consulta los requisitos y la vigencia de esta oportunidad antes de postularte.</p>
       </article>
     </main>
 
