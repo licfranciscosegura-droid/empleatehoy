@@ -1,36 +1,98 @@
 
 ---
-import empleos from '../../../public/jobs.json';
+import jobsData from '../../../public/jobs.json';
 
 export const prerender = true;
 
-const crearSlug = (valor) =>
-  String(valor ?? '')
+// Convierte cualquier valor a texto seguro.
+function texto(valor: unknown): string {
+  return String(valor ?? '').trim();
+}
+
+// Genera las URL de las vacantes.
+// Esta función corrige el error "crearSlug is not defined".
+function crearSlug(valor: unknown): string {
+  return texto(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
+function fechaValida(valor: unknown): string | undefined {
+  const fecha = texto(valor);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return undefined;
+  }
+
+  const fechaObjeto = new Date(`${fecha}T00:00:00Z`);
+
+  if (
+    Number.isNaN(fechaObjeto.getTime()) ||
+    fechaObjeto.toISOString().slice(0, 10) !== fecha
+  ) {
+    return undefined;
+  }
+
+  return fecha;
+}
+
+function urlSegura(valor: unknown): string {
+  const url = texto(valor);
+
+  if (!url) return '';
+
+  try {
+    const resultado = new URL(url);
+
+    if (
+      resultado.protocol === 'https:' ||
+      resultado.protocol === 'http:'
+    ) {
+      return resultado.href;
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
+// Astro genera una página para cada vacante.
 export function getStaticPaths() {
-  const usados = new Set();
+  const vacantes = Array.isArray(jobsData)
+    ? jobsData
+    : [];
 
-  return empleos
-    .filter((empleo) =>
-      empleo &&
-      empleo.id &&
-      empleo.titulo &&
-      empleo.empresa
-    )
-    .map((empleo) => ({
-      empleo,
-      slug: crearSlug(empleo.id)
-    }))
+  const slugsUsados = new Set<string>();
+
+  return vacantes
+    .filter((empleo: any) => {
+      return (
+        empleo &&
+        texto(empleo.id) &&
+        texto(empleo.titulo)
+      );
+    })
+    .map((empleo: any) => {
+      const slug = crearSlug(empleo.id);
+
+      return {
+        slug,
+        empleo
+      };
+    })
     .filter(({ slug }) => {
-      if (!slug || usados.has(slug)) return false;
-      usados.add(slug);
+      if (!slug || slugsUsados.has(slug)) {
+        return false;
+      }
+
+      slugsUsados.add(slug);
       return true;
     })
-    .map(({ empleo, slug }) => ({
+    .map(({ slug, empleo }) => ({
       params: { slug },
       props: { empleo }
     }));
@@ -38,503 +100,488 @@ export function getStaticPaths() {
 
 const { empleo } = Astro.props;
 
-const titulo = String(empleo.titulo || 'Oferta de empleo');
-const empresa = String(empleo.empresa || 'Empresa no especificada');
-const ubicacion = String(
-  empleo.ubicacion || empleo.pais || 'No especificada'
+const titulo = texto(empleo.titulo);
+
+const empresa =
+  texto(empleo.empresa) || 'Empresa no especificada';
+
+const ubicacion =
+  texto(empleo.ubicacion) ||
+  [texto(empleo.ciudad), texto(empleo.pais)]
+    .filter(Boolean)
+    .join(', ') ||
+  'Ubicación no especificada';
+
+const descripcion = texto(empleo.descripcion);
+
+const requisitos = texto(empleo.requisitos);
+const responsabilidades = texto(empleo.responsabilidades);
+
+const fechaPublicacion = fechaValida(empleo.fecha);
+const fechaVencimiento = fechaValida(empleo.vence);
+
+const tituloSEO =
+  texto(empleo.seoTitle) ||
+  `${titulo} - ${empresa} | EmpléateHoy`;
+
+const descripcionSEO = (
+  texto(empleo.seoDescription) ||
+  `Oferta de empleo: ${titulo} en ${empresa}. ${ubicacion}. Consulta la descripción, los requisitos y cómo aplicar.`
+).slice(0, 160);
+
+const canonical = new URL(
+  Astro.url.pathname,
+  Astro.site || Astro.url.origin
+).href;
+
+const urlAplicar = urlSegura(
+  empleo.aplicarUrl || empleo.url || empleo.fuenteUrl
 );
-const modalidad = String(empleo.modalidad || '');
-const salario = String(empleo.salario || '');
-const categoria = String(empleo.categoria || '');
-const tipo = String(empleo.tipo || '');
-const fecha = String(empleo.fecha || '');
-const fuente = String(empleo.fuente || 'Fuente original');
-const descripcion = String(empleo.descripcion || '').trim();
 
-const enlaceOriginal = String(
-  empleo.aplicarUrl || empleo.url || ''
+const urlFuente = urlSegura(
+  empleo.fuenteUrl || empleo.url
 );
 
-const urlPostulacion = /^https:\/\/[^\s]+$/i.test(enlaceOriginal)
-  ? enlaceOriginal
-  : '';
+const modalidad = texto(empleo.modalidad);
+const tipo = texto(empleo.tipo);
+const pais = texto(empleo.pais);
+const ciudad = texto(empleo.ciudad);
+const idioma = texto(empleo.idioma) || 'es';
 
-const urlActual = new URL(Astro.url.pathname, Astro.site || Astro.url.origin).href;
+const remoto = /remot|teletrabaj|work from home/i.test(
+  modalidad
+);
 
-const resumenSEO =
-  `Conoce la oferta de ${titulo} en ${empresa}. ` +
-  `Ubicación: ${ubicacion}. Consulta requisitos, ` +
-  `información del puesto y cómo postularte.`;
+function tipoEmpleoSchema(valor: string) {
+  const tipos = [
+    'FULL_TIME',
+    'PART_TIME',
+    'CONTRACTOR',
+    'TEMPORARY',
+    'INTERN',
+    'VOLUNTEER',
+    'PER_DIEM',
+    'OTHER'
+  ];
 
-const relacionados = empleos
-  .filter((otro) =>
-    otro.id !== empleo.id &&
-    otro.titulo &&
-    otro.empresa &&
-    otro.id
-  )
-  .filter((otro) =>
-    otro.categoria === empleo.categoria ||
-    otro.modalidad === empleo.modalidad
-  )
-  .slice(0, 6);
+  const normalizado = valor.toUpperCase();
 
-const fechaValida =
-  /^\d{4}-\d{2}-\d{2}$/.test(fecha) &&
-  !Number.isNaN(Date.parse(fecha));
+  if (tipos.includes(normalizado)) {
+    return normalizado;
+  }
 
-const fechaExpiracion =
-  /^\d{4}-\d{2}-\d{2}$/.test(String(empleo.vence || ''))
-    ? String(empleo.vence)
-    : '';
+  if (/tiempo completo|full.time|jornada completa/i.test(valor)) {
+    return 'FULL_TIME';
+  }
 
-const jsonLD = {
+  if (/medio tiempo|part.time|tiempo parcial/i.test(valor)) {
+    return 'PART_TIME';
+  }
+
+  if (/pasant|internship/i.test(valor)) {
+    return 'INTERN';
+  }
+
+  if (/temporal|temporary/i.test(valor)) {
+    return 'TEMPORARY';
+  }
+
+  return undefined;
+}
+
+const tipoSchema = tipoEmpleoSchema(tipo);
+
+const jobPosting = {
   '@context': 'https://schema.org',
   '@type': 'JobPosting',
   title: titulo,
-  description: descripcion || resumenSEO,
+  description: descripcion,
+  url: canonical,
+
+  identifier: {
+    '@type': 'PropertyValue',
+    name: 'EmpléateHoy',
+    value: texto(empleo.id)
+  },
+
   hiringOrganization: {
     '@type': 'Organization',
     name: empresa
   },
-  ...(fechaValida ? { datePosted: fecha } : {}),
-  ...(fechaExpiracion ? { validThrough: fechaExpiracion } : {}),
-  ...(modalidad.toLowerCase() === 'remoto'
+
+  ...(fechaPublicacion
+    ? { datePosted: fechaPublicacion }
+    : {}),
+
+  ...(fechaVencimiento
+    ? { validThrough: `${fechaVencimiento}T23:59:59` }
+    : {}),
+
+  ...(tipoSchema
+    ? { employmentType: tipoSchema }
+    : {}),
+
+  ...(pais || ciudad
     ? {
-        jobLocationType: 'TELECOMMUTE',
-        applicantLocationRequirements: {
-          '@type': 'Place',
-          name: ubicacion
-        }
-      }
-    : {
         jobLocation: {
           '@type': 'Place',
           address: {
             '@type': 'PostalAddress',
-            addressLocality: ubicacion
+            ...(ciudad ? { addressLocality: ciudad } : {}),
+            ...(pais ? { addressCountry: pais } : {})
           }
         }
-      }),
-  url: urlActual,
-  ...(tipo ? { employmentType: tipo } : {})
+      }
+    : {}),
+
+  ...(remoto
+    ? { jobLocationType: 'TELECOMMUTE' }
+    : {})
 };
+
+const jsonLD = JSON.stringify(jobPosting)
+  .replace(/</g, '\\u003c');
 ---
 
 <!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#11152e" />
+<html lang={idioma}>
+<head>
+  <meta charset="UTF-8" />
 
-    <title>{titulo} en {empresa} | EmpléateHoy</title>
-    <meta name="description" content={resumenSEO} />
-    <link rel="canonical" href={urlActual} />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  />
 
-    <meta property="og:type" content="article" />
-    <meta property="og:title" content={`${titulo} | EmpléateHoy`} />
-    <meta property="og:description" content={resumenSEO} />
-    <meta property="og:url" content={urlActual} />
+  <title>{tituloSEO}</title>
 
-    <link
-      rel="preconnect"
-      href="https://fonts.googleapis.com"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+  <meta
+    name="description"
+    content={descripcionSEO}
+  />
 
-    <script
-      type="application/ld+json"
-      set:html={JSON.stringify(jsonLD).replace(/</g, '\\u003c')}
-    />
+  <meta
+    name="robots"
+    content="index, follow"
+  />
 
-    <style>
-      :global(*) { box-sizing: border-box; }
+  <link rel="canonical" href={canonical} />
 
-      :global(body) {
-        margin: 0;
-        background: #f6f7fc;
-        color: #222741;
-        font-family: 'DM Sans', Arial, sans-serif;
-      }
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={tituloSEO} />
+  <meta
+    property="og:description"
+    content={descripcionSEO}
+  />
+  <meta property="og:url" content={canonical} />
 
-      :global(a) { text-decoration: none; }
+  <script
+    type="application/ld+json"
+    set:html={jsonLD}
+  />
 
-      .topline {
-        height: 4px;
-        background: linear-gradient(90deg,#7154f5,#34c5e8,#ff5aab);
-      }
+  <style>
+    :root {
+      --azul: #123c7a;
+      --azul-oscuro: #09295b;
+      --rojo: #e63946;
+      --fondo: #f4f7fc;
+      --texto: #24344b;
+      --borde: #e2e8f0;
+    }
 
-      .header {
-        background: white;
-        border-bottom: 1px solid #edf0f8;
-      }
+    * {
+      box-sizing: border-box;
+    }
 
-      .container {
-        width: min(1150px, calc(100% - 36px));
-        margin: auto;
-      }
+    body {
+      margin: 0;
+      background: var(--fondo);
+      color: var(--texto);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.7;
+    }
 
-      .nav {
-        min-height: 78px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-      }
+    a {
+      color: var(--azul);
+    }
 
+    .contenedor {
+      width: min(1050px, calc(100% - 32px));
+      margin: auto;
+    }
+
+    header {
+      background: white;
+      border-bottom: 1px solid var(--borde);
+    }
+
+    .navegacion {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+    }
+
+    .logo {
+      font-size: 27px;
+      font-weight: 900;
+      color: var(--azul);
+      text-decoration: none;
+    }
+
+    .logo span {
+      color: var(--rojo);
+    }
+
+    .volver {
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    main {
+      padding: 38px 0 65px;
+    }
+
+    .tarjeta {
+      background: white;
+      border: 1px solid var(--borde);
+      border-radius: 18px;
+      padding: clamp(20px, 4vw, 42px);
+      box-shadow: 0 8px 28px rgba(10, 35, 80, 0.06);
+    }
+
+    .etiqueta {
+      color: var(--rojo);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    h1 {
+      margin: 12px 0;
+      color: var(--azul-oscuro);
+      font-size: clamp(27px, 4vw, 39px);
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    h2 {
+      color: var(--azul);
+      font-size: 22px;
+      margin: 30px 0 12px;
+    }
+
+    .empresa {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .detalles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 24px 0;
+    }
+
+    .detalle {
+      background: #edf4ff;
+      color: #1d4c87;
+      padding: 8px 13px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .descripcion {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 16px;
+      line-height: 1.85;
+    }
+
+    .boton {
+      display: inline-block;
+      background: var(--rojo);
+      color: white;
+      text-decoration: none;
+      padding: 14px 25px;
+      border-radius: 10px;
+      font-weight: 800;
+      margin-top: 20px;
+      transition: background 0.2s ease;
+    }
+
+    .boton:hover {
+      background: #c92735;
+    }
+
+    .fuente {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid var(--borde);
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    footer {
+      background: var(--azul-oscuro);
+      color: white;
+      text-align: center;
+      padding: 25px 15px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 600px) {
       .logo {
-        font: 800 24px 'Plus Jakarta Sans',sans-serif;
-        letter-spacing: -1px;
-        color: #191d36;
+        font-size: 22px;
       }
 
-      .logo span { color: #7655f7; }
-
-      .navlink {
-        font-size: 13px;
-        font-weight: 800;
-        color: #7655f7;
-      }
-
-      .hero {
-        background:
-          radial-gradient(ellipse at 80% 20%,#6545b570,transparent 50%),
-          linear-gradient(125deg,#13162e,#251e53);
-        padding: 54px 0 65px;
-        color: white;
-      }
-
-      .breadcrumb {
-        font-size: 12px;
-        color: #d4ccff;
-        margin-bottom: 23px;
-        line-height: 1.7;
-      }
-
-      .breadcrumb a { color: #d4ccff; }
-
-      h1 {
-        font: 800 clamp(28px,4vw,45px)/1.2 'Plus Jakarta Sans',sans-serif;
-        letter-spacing: -1.3px;
-        max-width: 850px;
-        margin: 0 0 18px;
-      }
-
-      .hero p {
-        margin: 0;
-        color: #d5d5ed;
-        line-height: 1.7;
-      }
-
-      .hero-tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 9px;
-        margin-top: 22px;
-      }
-
-      .hero-tag {
-        padding: 9px 13px;
-        background: #ffffff18;
-        border: 1px solid #ffffff25;
-        border-radius: 9px;
-        font-size: 12px;
-        font-weight: 700;
-      }
-
-      .layout {
-        display: grid;
-        grid-template-columns: minmax(0,1fr) 315px;
-        gap: 23px;
-        align-items: start;
-        padding: 36px 0 70px;
-      }
-
-      .card {
-        background: white;
-        border: 1px solid #e8eaf3;
-        border-radius: 18px;
-        padding: 28px;
-        margin-bottom: 20px;
-        box-shadow: 0 8px 28px #20265308;
-      }
-
-      h2 {
-        font: 800 21px 'Plus Jakarta Sans',sans-serif;
-        margin: 0 0 20px;
-        color: #222741;
-      }
-
-      .details {
-        display: grid;
-        grid-template-columns: repeat(2,minmax(0,1fr));
-        gap: 20px;
-      }
-
-      .detail small {
-        display: block;
-        color: #858ba0;
-        font-size: 12px;
-        margin-bottom: 6px;
-      }
-
-      .detail strong {
-        display: block;
-        font-size: 14px;
-        overflow-wrap: anywhere;
-      }
-
-      .description {
-        font-size: 15px;
-        line-height: 1.95;
-        color: #50566e;
-        white-space: pre-line;
-        overflow-wrap: anywhere;
-      }
-
-      .notice {
-        border-left: 4px solid #7555f6;
-        background: #f5f2ff;
-        padding: 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        line-height: 1.8;
-        color: #585474;
-      }
-
-      .btn {
-        display: block;
-        text-align: center;
-        background: #7555f6;
-        color: white;
-        border-radius: 12px;
-        padding: 16px;
-        font-size: 14px;
-        font-weight: 800;
-        margin: 17px 0;
-      }
-
-      .btn:hover { background: #5d3dd9; }
-
-      .small {
-        font-size: 12px;
-        color: #858ba0;
-        line-height: 1.8;
-      }
-
-      .related {
-        display: block;
-        padding: 15px 0;
-        border-bottom: 1px solid #edf0f7;
-        color: #242942;
-      }
-
-      .related strong {
-        display: block;
-        font-size: 13px;
-        margin-bottom: 6px;
-      }
-
-      .related span {
-        color: #858ba0;
+      .volver {
         font-size: 12px;
       }
 
-      .footer {
-        background: #11152b;
-        color: #b2b8ce;
-        text-align: center;
-        padding: 35px 18px;
-        font-size: 13px;
+      main {
+        padding-top: 20px;
       }
+    }
+  </style>
+</head>
 
-      @media(max-width:800px) {
-        .layout { grid-template-columns: 1fr; }
-      }
+<body>
+  <header>
+    <div class="contenedor navegacion">
+      <a href="/" class="logo">
+        Empléate<span>Hoy</span>
+      </a>
 
-      @media(max-width:520px) {
-        .card { padding: 20px; }
-        .details { grid-template-columns: 1fr; }
-        .hero { padding: 40px 0 50px; }
-        .logo { font-size: 21px; }
-      }
-    </style>
-  </head>
+      <a href="/" class="volver">
+        ← Volver a empleos
+      </a>
+    </div>
+  </header>
 
-  <body>
-    <div class="topline"></div>
+  <main class="contenedor">
+    <article class="tarjeta">
 
-    <header class="header">
-      <div class="container nav">
-        <a href="/" class="logo">
-          Empléate<span>Hoy</span>
-        </a>
-        <a href="/#vacantes" class="navlink">
-          Explorar empleos ↗
-        </a>
+      <div class="etiqueta">
+        Oportunidad laboral
       </div>
-    </header>
 
-    <main>
-      <section class="hero">
-        <div class="container">
-          <div class="breadcrumb">
-            <a href="/">Inicio</a> /
-            <a href="/#vacantes">Empleos</a> /
-            {titulo}
+      <h1>{titulo}</h1>
+
+      <div class="empresa">{empresa}</div>
+
+      <div class="detalles">
+        <span class="detalle">
+          📍 {ubicacion}
+        </span>
+
+        {modalidad && (
+          <span class="detalle">
+            💻 {modalidad}
+          </span>
+        )}
+
+        {tipo && (
+          <span class="detalle">
+            💼 {tipo}
+          </span>
+        )}
+
+        {empleo.categoria && (
+          <span class="detalle">
+            📂 {empleo.categoria}
+          </span>
+        )}
+
+        {fechaPublicacion && (
+          <span class="detalle">
+            📅 {fechaPublicacion}
+          </span>
+        )}
+      </div>
+
+      <h2>Descripción completa del empleo</h2>
+
+      <div class="descripcion">
+        {descripcion || 'Descripción no disponible.'}
+      </div>
+
+      {requisitos && (
+        <section>
+          <h2>Requisitos</h2>
+          <div class="descripcion">{requisitos}</div>
+        </section>
+      )}
+
+      {responsabilidades && (
+        <section>
+          <h2>Responsabilidades</h2>
+          <div class="descripcion">
+            {responsabilidades}
           </div>
+        </section>
+      )}
 
-          <h1>{titulo}</h1>
+      {empleo.salario && (
+        <section>
+          <h2>Salario</h2>
+          <p>{empleo.salario}</p>
+        </section>
+      )}
 
+      {fechaVencimiento && (
+        <section>
+          <h2>Fecha límite de aplicación</h2>
+          <p>{fechaVencimiento}</p>
+        </section>
+      )}
+
+      {urlAplicar && (
+        <a
+          href={urlAplicar}
+          class="boton"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Consultar cómo aplicar ↗
+        </a>
+      )}
+
+      <div class="fuente">
+        {empleo.fuente && (
+          <p>Fuente: {empleo.fuente}</p>
+        )}
+
+        {urlFuente && (
           <p>
-            {empresa} · {ubicacion}
+            <a
+              href={urlFuente}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Consultar publicación original
+            </a>
           </p>
+        )}
 
-          <div class="hero-tags">
-            {modalidad && <span class="hero-tag">{modalidad}</span>}
-            {categoria && <span class="hero-tag">{categoria}</span>}
-            {salario && <span class="hero-tag">{salario}</span>}
-          </div>
-        </div>
-      </section>
-
-      <div class="container layout">
-        <div>
-          <section class="card">
-            <h2>Información de la vacante</h2>
-
-            <div class="details">
-              <div class="detail">
-                <small>Empresa</small>
-                <strong>{empresa}</strong>
-              </div>
-
-              <div class="detail">
-                <small>Ubicación</small>
-                <strong>{ubicacion}</strong>
-              </div>
-
-              <div class="detail">
-                <small>Modalidad</small>
-                <strong>{modalidad || 'No especificada'}</strong>
-              </div>
-
-              <div class="detail">
-                <small>Tipo de empleo</small>
-                <strong>{tipo || 'No especificado'}</strong>
-              </div>
-
-              <div class="detail">
-                <small>Salario</small>
-                <strong>{salario || 'No publicado'}</strong>
-              </div>
-
-              <div class="detail">
-                <small>Fecha de publicación</small>
-                <strong>{fecha || 'No especificada'}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section class="card">
-            <h2>Descripción del empleo</h2>
-
-            <div class="description">
-              {
-                descripcion ||
-                'Consulta los detalles completos de esta oportunidad en la fuente original.'
-              }
-            </div>
-          </section>
-
-          <section class="card">
-            <h2>Cómo postularte</h2>
-
-            <p class="description">
-              Si esta oportunidad se ajusta a tu perfil,
-              consulta los requisitos vigentes y completa
-              tu solicitud mediante el enlace oficial
-              del anuncio.
-            </p>
-
-            {
-              urlPostulacion &&
-              <a
-                class="btn"
-                href={urlPostulacion}
-                target="_blank"
-                rel="noopener noreferrer nofollow"
-              >
-                Postularme a esta vacante ↗
-              </a>
-            }
-
-            <div class="notice">
-              EmpléateHoy es un portal informativo de
-              oportunidades laborales. La contratación
-              y el proceso de selección corresponden
-              a la empresa o plataforma de origen.
-              Nunca pagues dinero para conseguir
-              una entrevista o una oferta de empleo.
-            </div>
-          </section>
-        </div>
-
-        <aside>
-          <section class="card">
-            <h2>¿Te interesa?</h2>
-
-            <p class="small">
-              Consulta la publicación original para
-              verificar que la vacante siga disponible.
-            </p>
-
-            {
-              urlPostulacion &&
-              <a
-                class="btn"
-                href={urlPostulacion}
-                target="_blank"
-                rel="noopener noreferrer nofollow"
-              >
-                Solicitar empleo ↗
-              </a>
-            }
-
-            <p class="small">
-              Fuente: {fuente}
-            </p>
-          </section>
-
-          {
-            relacionados.length > 0 &&
-            <section class="card">
-              <h2>Empleos relacionados</h2>
-
-              {
-                relacionados.map((otro) => (
-                  <a
-                    class="related"
-                    href={`/empleos/${crearSlug(otro.id)}/`}
-                  >
-                    <strong>{otro.titulo}</strong>
-                    <span>{otro.empresa}</span>
-                  </a>
-                ))
-              }
-            </section>
-          }
-        </aside>
+        <p>
+          EmpléateHoy facilita información sobre
+          oportunidades laborales. Verifica siempre
+          los requisitos y la vigencia de cada oferta.
+        </p>
       </div>
-    </main>
 
-    <footer class="footer">
-      © {new Date().getFullYear()} EmpléateHoy.
-      Oportunidades sin fronteras.
-    </footer>
-  </body>
+    </article>
+  </main>
+
+  <footer>
+    © {new Date().getFullYear()} EmpléateHoy.
+    Todos los derechos reservados.
+  </footer>
+</body>
 </html>
